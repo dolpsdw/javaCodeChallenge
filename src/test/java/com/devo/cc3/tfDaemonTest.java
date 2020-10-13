@@ -38,6 +38,9 @@ public class tfDaemonTest {
         System.setErr(originalErr);
     }
 
+    /**
+     * This is a global e2e Test of the whole Daemon
+     */
     @Test
     public void main() {
         // Arrange
@@ -51,6 +54,10 @@ public class tfDaemonTest {
         assertTrue("Second position and correct Calc for debug2.log", consoleOutput[lines - 1].contains("debug2.log -> 0.2157478"));
     }
 
+    /**
+     * This Test is more in the Unit Test Fashion
+     * Increase coverage could be easy extracting the Observable logic to function classes, but that will increase the memory footprint.
+     */
     @Test
     public void processLogFile() {
         // Arrange

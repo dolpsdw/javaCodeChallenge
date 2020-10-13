@@ -107,24 +107,59 @@ To execute it, paste on chrome and call the function with different parameters
 
 Estimated Time Efficiency: O( N*(N-Δe) ), Estimated Space Efficiency: O(3)
 
-## 3 Tf/idf
+## 3 Tf/idf (My first Java project!)
+
+Enunciate:
+
+Assume that we have a directory D containing a document set S, with one file per document. Documents will be
+added to that directory by external agents,but they will never be removed or overwritten. We are given a set of
+terms TT, and asked to compute the tf/idf of TT for each document in D, and report the N top documents sorted by
+relevance.
+
+The program must run as a daemon/service that is watching for new documents, and dynamically updates
+the computed tf/idf for each document and the inferred ranking.
 
 Example (directory=dir, terms="the sun", topN=6, periodToReport=9)=>alwaysOn
 
-directory D will get new files (existing ones never removed or modified)
-terms TT will have separate calculations of tf-idf
-total tf-idf for a file = "the"TF-idf + "sun"TF-idf
-report N top documents sorted by relevance.
-
 Is the problem eligible for concurrency / distribution ?
-* For serious production Big file stuff the file should be opened as a Stream and read in "small" line based chunks, we can then compose the TF-idf
+* For serious production Big file stuff the file should be opened as a Stream and read in "small" line based chunks, we can then compose the TF while parsing small chunks.
 * The main bottle-neck of this process is the IO HDD/SSD and is not parallelize at all.
+* By implementation detail io.monitor runs in a separate thread to poll FileSystem for folder changes.
 
 Is the problem eligible for reactivity ?
-* Yes, there is a lot of IO/E involved.
-* Events in the folder should fire the process of the new file,
-* All the async reads of HDD can be reacted.
+* Yes, there is a lot of IO/Events involved.
+* Events in the folder should fire the process of the new file, this will fire other events, until final TF/IDF its done.
 
-Final note: For serious production Big files, i probably use battle tested libraries for IO and monitoring like 
-* apache.commons.io -> for read the files
-* apache.commons.io.monitor -> for monitoring the FS
+## Please read the Code before continue
+
+The code it's done in a Reactive Functional Fashion, and optimized for Big files and a lot of small files.
+
+At First, I thought that RXJava could be a good fit since it offers a lot of powerful operators to deal with timing, delays
+and event orchestration and easy Parallelization like for a healthCheck thread.
+
+But since the best idea is to process the files 1 by 1 in sequential order to not make the Disk jump to far sectors, it has been less useful than I thought.
+The good part tinkered in functional steps, so it could be easy to move the logic to separate functions (class functions).
+
+The IDE used is IntelliJ, the gitignore combines common IDE gitignore + java + gradle
+
+I have tried to make the Test runnable on all machines by attaching a testSample as resource.
+
+The executable is attached on Release section, it's a fat-jar that contains all the needed libraries.
+
+To execute it, run the jar in a CMD/Bash with different parameters
+
+`java -jar cc3-1.0-SNAPSHOT.jar -d "C:\Users\Jesus\Documents\STAR WARS Battlefront II\CrashDumps" -n 2 -p 333 -t "Error Warning"`
+
+Estimated Time Efficiency: O(n)
+
+Given a folder with 400 Big files, it loops the files only once.
+
+Internal functions try to index all the metadata required for calculations.
+
+And access this metadata with the fewer loops, or looping in small objects.
+
+Estimated Space Efficiency: O(Δ constant)
+
+Given a folder with 400 Big files, since the files are read line by line, the memory space for process a 5Gb file is similar to the 5Kb one.
+
+Internal functions try to keep space low as well by not copying variables or call class functions with pass by value.
