@@ -158,23 +158,36 @@ public class tfDaemon {
                     .stream()
                     .sorted(Map.Entry.<String, Float>comparingByValue().reversed())
                     .limit(finalNumber)
-                    .forEachOrdered(x -> System.out.printf("\n%s -> %s", x.getKey(), x.getValue()));
+                    .forEachOrdered(result -> System.out.printf("\n%s -> %s", result.getKey(), result.getValue()));
             },
             ko -> System.out.printf("\nERROR %s", ko)
         );
 
-        // Setup Folder observation
+        /* Setup Folder observation
+         *
+         * Discussion: Java.WatchService vs apache.commons.io.monitor
+         * WatchService:
+         * ✓ Will fit nice since its event Based and no poll its needed
+         * ✕ The Operative system can overflow the event queue https://stackoverflow.com/questions/39076626/how-to-handle-the-java-watchservice-overflow-event
+         * ✕ Does not work on Shared network drives (docker?)
+         *
+         * commons.io.monitor:
+         * ✕ Will poll the FileSystem folder each N ms and compare the tree and metadata? to fire events
+         * ✓ The polling is done in another thread
+         * ✓ Better Throughput
+         * ✓ Work on all kind of drives, including network and docker
+         * */
         FileAlterationObserver folderObserver = new FileAlterationObserver(directory);
         FileAlterationMonitor monitor = new FileAlterationMonitor(period);
         FileAlterationListener listener = new FileAlterationListenerAdaptor() {
             @Override
             public void onFileCreate(File file) {
-                calculateTFAndFireObs(terms, FileToTF_Index$, file);
+                calculateTFAndFireObs(file, terms, FileToTF_Index$);
             }
 
             @Override
             public void onFileChange(File file) {
-                // calculateTFAndFireObs(terms, FileToTF_Index$, file); // The implementation is supporting this scenario as well.
+                // calculateTFAndFireObs(file, terms, FileToTF_Index$); // The implementation is supporting this scenario as well.
             }
 
             @Override
@@ -191,7 +204,7 @@ public class tfDaemon {
         folderObserver.addListener(listener);
         monitor.addObserver(folderObserver);
         try {
-            monitor.start();
+            monitor.start(); // This will run a Thread that will poll the File System.
         } catch (Exception e) {
             System.out.println(e.getMessage());
             System.exit(1);
@@ -199,13 +212,21 @@ public class tfDaemon {
 
         // Get all files under folder
         Collection<File> files = FileUtils.listFiles(directory, null, true);
-        files.forEach(file -> calculateTFAndFireObs(terms, FileToTF_Index$, file)); // And process it
+        files.forEach(file -> calculateTFAndFireObs(file, terms, FileToTF_Index$)); // And process each
     }
 
+    /**
+     * Not Pure,  it modify global state.
+     * Predictable, given the Same Terms, the same FileToTF_Index$ and the same file with the same contents the same onNext will happen
+     * The @Output is activate the Observable chain with an updated TF_Index
+     * @param file file to calc
+     * @param terms terms to base the calculations
+     * @param fileToTF_Index$ BehaviorSubject<HashMap<String, ProcessLogFileResult>> to update
+     */
     private static void calculateTFAndFireObs(
+        File file,
         HashSet<String> terms,
-        BehaviorSubject<HashMap<String, ProcessLogFileResult>> fileToTF_Index$,
-        File file
+        BehaviorSubject<HashMap<String, ProcessLogFileResult>> fileToTF_Index$
     ) {
         try {
             ProcessLogFileResult result = processLogFile(file, terms); // When the file read operation end
@@ -217,10 +238,10 @@ public class tfDaemon {
         }
     }
 
-    // Lest start from the minimum event function the one that read a file and calculate the tf.
-
     /**
+     * Almost @Pure, given the same File and Terms will output the Same. But read a File is considered IO side Effect
      * This function will sequentially read a file, and calculate the TermFreq for a given input terms.
+     * Will also calculate TermPresence for optimized TermPresence and IDF calc.
      * The read will be line by line to keep the Space Efficiency O(Constant) despite the file size.
      * Its better not run this function in multiple Threads since HDD performs better when the next read request is to
      * a near sector.
@@ -235,6 +256,7 @@ public class tfDaemon {
      * @throws IOException exceptions can happen while reading the file
      */
     public static ProcessLogFileResult processLogFile(File file, HashSet<String> terms) throws IOException {
+        // TODO: Battle Test this, and check if only one file at a time is being read.
         HashSet<String> totalTermsInDocument = new HashSet<>();
         HashMap<String, Float> termsFrequency = new HashMap<>();
         HashSet<String> termsPresence = new HashSet<>();
@@ -286,12 +308,20 @@ public class tfDaemon {
         final HashMap<String, Float> TermsFrequency;
         final HashSet<String> TermsPresence;
 
+        /**
+         * Inner Static class for complex return type.
+         * @param termsFrequency the final HashMap<Term, Float> of each term.
+         * @param termsPresence the final HashSet for easy aggregation of files with a term
+         */
         public ProcessLogFileResult(final HashMap<String, Float> termsFrequency, final HashSet<String> termsPresence) {
             TermsFrequency = termsFrequency;
             TermsPresence = termsPresence;
         }
     }
 
+    /**
+     * Clear the console on Windows cmd or Linux like.
+     */
     public static void clearConsole() {
         try {
             final String os = System.getProperty("os.name");
